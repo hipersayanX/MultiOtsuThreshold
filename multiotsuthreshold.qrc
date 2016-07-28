@@ -1,0 +1,5 @@
+<RCC>
+    <qresource prefix="/otsu">
+        <file>lena.png</file>
+    </qresource>
+</RCC>

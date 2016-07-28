@@ -23,73 +23,97 @@
  *     http://imagej.net/Multi_Otsu_Threshold
 */
 
-#include <iostream>
-#include <cmath>
+#include <algorithm>
 #include <QCoreApplication>
 #include <QImage>
+#include <QtMath>
 #include <QtDebug>
 
-inline QVector<int> calculateHistogram(const QImage &image)
+inline QVector<int> histogram(const QImage &image)
 {
     QVector<int> histogram(256, 0);
-    int size = image.width() * image.height();
-    const quint8 *img = image.constBits();
 
-    for (int i = 0; i < size; i++)
-        histogram[img[i]]++;
+    for (int y = 0; y < image.height(); y++) {
+        const quint8 *line = reinterpret_cast<const quint8 *>(image.constScanLine(y));
+
+        for (int x = 0; x < image.width(); x++)
+            histogram[line[x]]++;
+    }
 
     return histogram;
 }
 
-inline QVector<qreal> buildTables(const QVector<int> &histogram, const QSize &size)
+inline void printHistogram(int width, int height,
+                           const QVector<int> &histogram,
+                           const QVector<int> &thresholds=QVector<int>())
 {
-    qreal P[histogram.size()][histogram.size()];
-    qreal S[histogram.size()][histogram.size()];
-    QVector<qreal> H(histogram.size() * histogram.size(), 0);
+    // Create the graph.
+    QString graph((width + 1) * height, ' ');
 
-    // initialize
-    for (int j = 0; j < histogram.size(); j++)
-        for (int i = 0; i < histogram.size(); i++) {
-            P[i][j] = 0;
-            S[i][j] = 0;
-        }
+    // Split each line.
+    for (int y = 0; y < height; y++)
+        graph[width + y * (width + 1)] = '\n';
 
-    // diagonal
-    for (int i = 1; i < histogram.size(); i++) {
-        P[i][i] = histogram[i];
-        S[i][i] = i * histogram[i];
+    int maxValue = *std::max_element(histogram.constBegin(), histogram.constEnd());
+
+    // Draw values.
+    for (int x = 0; x < width; x++) {
+        int h = (height - 1)
+                * histogram[(histogram.size() - 1) * x / (width - 1)]
+                / maxValue;
+
+        for (int y = height - 1; y >= (height - h - 1); y--)
+            graph[x + y * (width + 1)] = '*';
     }
 
-    // calculate first row (row 0 is all zero)
-    for (int i = 1; i < histogram.size() - 1; i++) {
-        P[1][i + 1] = P[1][i] + histogram[i + 1];
-        S[1][i + 1] = S[1][i] + (i + 1) * histogram[i + 1];
+    // Draw the trhesholds.
+    foreach (int x, thresholds) {
+        int w = (width - 1) * x / (histogram.size() - 1);
+
+        for (int y = 0; y < height; y++)
+            graph[w + y * (width + 1)] = '|';
     }
 
-    // using row 1 to calculate others
-    for (int i = 2; i < histogram.size(); i++)
-        for (int j = i + 1; j < histogram.size(); j++) {
-            P[i][j] = P[1][j] - P[1][i - 1];
-            S[i][j] = S[1][j] - S[1][i - 1];
-        }
+    // Print the graph
+    qDebug() << graph.toStdString().c_str();
+}
 
-    int imageSize = size.width() * size.height();
+inline QVector<qreal> buildTables(const QVector<int> &histogram)
+{
+    // Create cumulative sum tables.
+    QVector<quint64> P(histogram.size() + 1);
+    QVector<quint64> S(histogram.size() + 1);
 
-    // now calculate H[i][j]
-    for (int i = 1; i < histogram.size(); i++)
-        for (int j = i + 1; j < histogram.size(); j++)
-            if (P[i][j] != 0)
-                H[j + i * histogram.size()] =
-                        (S[i][j] * S[i][j])
-                        / (P[i][j] * imageSize);
+    quint64 sumP = 0;
+    quint64 sumS = 0;
+
+    for (int i = 0; i < histogram.size(); i++) {
+        sumP += quint64(histogram[i]);
+        sumS += quint64(i * histogram[i]);
+        P[i + 1] = sumP;
+        S[i + 1] = sumS;
+    }
+
+    // Calculate the between-class variance for the interval u-v
+    QVector<qreal> H(histogram.size() * histogram.size(), 0.);
+
+    for (int u = 0; u < histogram.size(); u++) {
+        qreal *hLine = H.data() + u * histogram.size();
+
+        for (int v = u + 1; v < histogram.size(); v++)
+            if (P[v] == P[u])
+                hLine[v] = S[v] == S[u]? qQNaN(): qInf();
+            else
+                hLine[v] = qPow(S[v] - S[u], 2) / (P[v] - P[u]);
+    }
 
     return H;
 }
 
-inline QVector<int> otsu(const QImage &image, int nClasses)
+inline QVector<int> otsu(const QVector<int> &histogram,
+                         int nClasses)
 {
-    QVector<int> histogram = calculateHistogram(image);
-    QVector<qreal> H = buildTables(histogram, image.size());
+    QVector<qreal> H = buildTables(histogram);
     const qreal *Hptr = H.constData();
     qreal maxSum = 0;
     QVector<int> otsu(nClasses - 1, 0);
@@ -132,28 +156,31 @@ inline QVector<int> otsu(const QImage &image, int nClasses)
     return otsu;
 }
 
-QVector<int> threshold(const QImage &image,
-                       const QVector<int> &otsu,
-                       const QVector<int> &map)
+QImage threshold(const QImage &src,
+                 const QVector<int> &thresholds,
+                 const QVector<int> &colors)
 {
-    int size = image.width() * image.height();
-    const quint8 *in = image.constBits();
-    QVector<int> out(size);
+    QImage dst(src.size(), src.format());
 
-    for (int i = 0; i < size; i++) {
-        int value = -1;
+    for (int y = 0; y < src.height(); y++) {
+        const quint8 *srcLine = src.constScanLine(y);
+        quint8 *dstLine = dst.scanLine(y);
 
-        for (int j = 0; j < otsu.size(); j++)
-            if (in[i] <= otsu[j]) {
-                value = map[j];
+        for (int x = 0; x < src.width(); x++) {
+            int value = -1;
 
-                break;
-            }
+            for (int j = 0; j < thresholds.size(); j++)
+                if (srcLine[x] <= thresholds[j]) {
+                    value = colors[j];
 
-        out[i] = value < 0? map[otsu.size()]: value;
+                    break;
+                }
+
+            dstLine[x] = quint8(value < 0? colors[thresholds.size()]: value);
+        }
     }
 
-    return out;
+    return dst;
 }
 
 int main(int argc, char *argv[])
@@ -161,28 +188,23 @@ int main(int argc, char *argv[])
     QCoreApplication a(argc, argv);
     Q_UNUSED(a)
 
-    QImage inImage("lena.png");
+    QImage inImage(":/otsu/lena.png");
     inImage = inImage.convertToFormat(QImage::Format_Grayscale8);
-    QImage outImage(inImage.size(), inImage.format());
+
+    QVector<int> hist = histogram(inImage);
 
     int nColors = 5;
-    QVector<int> thresholds = otsu(inImage, nColors);
-    qDebug() << thresholds;
-
+    QVector<int> thresholds = otsu(hist, nColors);
     QVector<int> colors(nColors);
 
     for (int i = 0; i < nColors; i++)
         colors[i] = 255 * i / (nColors - 1);
 
-    QVector<int> thresholded = threshold(inImage, thresholds, colors);
+    QImage thresholded = threshold(inImage, thresholds, colors);
+    thresholded.save("otsu.png");
 
-    quint8 *oImg = outImage.bits();
-    int size = inImage.width() * inImage.height();
-
-    for (int i = 0; i < size; i++)
-        oImg[i] = thresholded[i];
-
-    outImage.save("otsu.png");
+    printHistogram(128, 12, hist, thresholds);
+    qDebug() << thresholds;
 
     return EXIT_SUCCESS;
 }
