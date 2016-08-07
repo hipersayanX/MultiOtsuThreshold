@@ -1,4 +1,4 @@
-/* OtsuThreshold, Implementation of Multi Otsu Threshold in Qt/C++.
+/* OtsuThreshold, Implementation of Multi level Otsu Threshold in Qt/C++.
  * Copyright (C) 2015  Gonzalo Exequiel Pedone
  *
  * This program is free software: you can redistribute it and/or modify
@@ -16,15 +16,11 @@
  *
  * Email   : hipersayan DOT x AT gmail DOT com
  * Web-Site: http://github.com/hipersayanX/MultiOtsuThreshold
- *
- * This program is based in the original implementation
- * of Multi Otsu Threshold made by Yasunari Tosa for ImageJ:
- *
- *     http://imagej.net/Multi_Otsu_Threshold
 */
 
 #include <algorithm>
 #include <QCoreApplication>
+#include <QElapsedTimer>
 #include <QImage>
 #include <QtMath>
 #include <QtDebug>
@@ -110,55 +106,60 @@ inline QVector<qreal> buildTables(const QVector<int> &histogram)
     return H;
 }
 
-inline QVector<int> otsu(const QVector<int> &histogram,
-                         int nClasses)
+void for_loop(qreal *maxSum,
+              QVector<int> *thresholds,
+              const QVector<qreal> &H,
+              int u,
+              int vmax,
+              int level,
+              int levels,
+              QVector<int> *index)
 {
-    QVector<qreal> H = buildTables(histogram);
-    const qreal *Hptr = H.constData();
-    qreal maxSum = 0;
-    QVector<int> otsu(nClasses - 1, 0);
-    int limits[nClasses - 1];
-    int index[nClasses - 1];
+    int classes = index->size() - 1;
 
-    for (int i = 0; i < otsu.size(); i++) {
-        limits[i] = histogram.size() - nClasses + i;
-        index[i] = i + 1;
-    }
+    for (int i = u; i < vmax; i++) {
+        (*index)[level] = i;
 
-    while (index[0] < limits[0]) {
-        qreal sum = 0;
+        if (level + 1 >= classes) {
+            // Reached the end of the for loop.
 
-        for (int i = 0; i < nClasses; i++) {
-            int j = i < otsu.size()? index[i]: 255;
-            int k = i > 0? index[i - 1]: 0;
-            sum += Hptr[j + (k + 1) * histogram.size()];
-        }
+            // Calculate the quadratic sum of al intervals.
+            qreal sum = 0;
 
-        if (maxSum < sum) {
-            for (int i = 0; i < otsu.size(); i++)
-                otsu[i] = index[i];
-
-            maxSum = sum;
-        }
-
-        for (int i = otsu.size() - 1; i >= 0; i--) {
-            index[i]++;
-
-            if (index[i] < limits[i]) {
-                for (int j = i + 1; j < otsu.size(); j++)
-                    index[j] = index[j - 1] + 1;
-
-                break;
+            for (int c = 0; c < classes; c++) {
+                int u = index->at(c);
+                int v = index->at(c + 1);
+                sum += H[v + u * levels];
             }
-        }
-    }
 
-    return otsu;
+            if (*maxSum < sum) {
+                // Return calculated threshold.
+                *thresholds = index->mid(1, thresholds->size());
+                *maxSum = sum;
+            }
+        } else
+            // Start a new for loop level, one position after current one.
+            for_loop(maxSum, thresholds, H, i + 1, vmax + 1, level + 1, levels, index);
+    }
 }
 
-QImage threshold(const QImage &src,
-                 const QVector<int> &thresholds,
-                 const QVector<int> &colors)
+inline QVector<int> otsu(QVector<int> histogram,
+                         int classes)
+{
+    qreal maxSum = 0;
+    QVector<int> thresholds(classes - 1, 0);
+    QVector<qreal> H = buildTables(histogram);
+    QVector<int> index(classes + 1);
+    index[index.size() - 1] = histogram.size() - 1;
+    for_loop(&maxSum, &thresholds, H, 0, histogram.size() - classes, 0, histogram.size(), &index);
+
+    return thresholds;
+}
+
+
+inline QImage threshold(const QImage &src,
+                        const QVector<int> &thresholds,
+                        const QVector<int> &colors)
 {
     QImage dst(src.size(), src.format());
 
@@ -191,20 +192,25 @@ int main(int argc, char *argv[])
     QImage inImage(":/otsu/lena.png");
     inImage = inImage.convertToFormat(QImage::Format_Grayscale8);
 
+    QElapsedTimer total;
+    total.start();
+
     QVector<int> hist = histogram(inImage);
+    int classes = 4;
+    QVector<int> thresholds = otsu(hist, classes);
+    QVector<int> colors(classes);
 
-    int nColors = 5;
-    QVector<int> thresholds = otsu(hist, nColors);
-    QVector<int> colors(nColors);
-
-    for (int i = 0; i < nColors; i++)
-        colors[i] = 255 * i / (nColors - 1);
+    for (int i = 0; i < classes; i++)
+        colors[i] = 255 * i / (classes - 1);
 
     QImage thresholded = threshold(inImage, thresholds, colors);
+    qint64 t = total.elapsed();
+
     thresholded.save("otsu.png");
 
     printHistogram(128, 12, hist, thresholds);
-    qDebug() << thresholds;
+    qDebug() << "Thresholds:" << thresholds;
+    qDebug() << "Time elapsed:" << t << "ms";
 
     return EXIT_SUCCESS;
 }

@@ -1,4 +1,4 @@
-# OtsuThreshold, Implementation of Multi Otsu Threshold in Qt/C++.
+# OtsuThreshold, Implementation of Multi level Otsu Threshold in Qt/C++.
 # Copyright (C) 2015  Gonzalo Exequiel Pedone
 #
 # This program is free software: you can redistribute it and/or modify
@@ -16,11 +16,6 @@
 #
 # Email   : hipersayan DOT x AT gmail DOT com
 # Web-Site: http://github.com/hipersayanX/MultiOtsuThreshold
-#
-# This program is based in the original implementation
-# of Multi Otsu Threshold made by Yasunari Tosa for ImageJ:
-#
-#     http://imagej.net/Multi_Otsu_Threshold
 
 QT += core gui
 
