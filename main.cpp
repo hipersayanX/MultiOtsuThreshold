@@ -39,41 +39,6 @@ inline QVector<int> histogram(const QImage &image)
     return histogram;
 }
 
-inline void printHistogram(int width, int height,
-                           const QVector<int> &histogram,
-                           const QVector<int> &thresholds=QVector<int>())
-{
-    // Create the graph.
-    QString graph((width + 1) * height, ' ');
-
-    // Split each line.
-    for (int y = 0; y < height; y++)
-        graph[width + y * (width + 1)] = '\n';
-
-    int maxValue = *std::max_element(histogram.constBegin(), histogram.constEnd());
-
-    // Draw values.
-    for (int x = 0; x < width; x++) {
-        int h = (height - 1)
-                * histogram[(histogram.size() - 1) * x / (width - 1)]
-                / maxValue;
-
-        for (int y = height - 1; y >= (height - h - 1); y--)
-            graph[x + y * (width + 1)] = '*';
-    }
-
-    // Draw the trhesholds.
-    foreach (int x, thresholds) {
-        int w = (width - 1) * x / (histogram.size() - 1);
-
-        for (int y = 0; y < height; y++)
-            graph[w + y * (width + 1)] = '|';
-    }
-
-    // Print the graph
-    qDebug() << graph.toStdString().c_str();
-}
-
 inline QVector<qreal> buildTables(const QVector<int> &histogram)
 {
     // Create cumulative sum tables.
@@ -124,7 +89,7 @@ void for_loop(qreal *maxSum,
             // Reached the end of the for loop.
 
             // Calculate the quadratic sum of al intervals.
-            qreal sum = 0;
+            qreal sum = 0.;
 
             for (int c = 0; c < classes; c++) {
                 int u = index->at(c);
@@ -139,23 +104,36 @@ void for_loop(qreal *maxSum,
             }
         } else
             // Start a new for loop level, one position after current one.
-            for_loop(maxSum, thresholds, H, i + 1, vmax + 1, level + 1, levels, index);
+            for_loop(maxSum,
+                     thresholds,
+                     H,
+                     i + 1,
+                     vmax + 1,
+                     level + 1,
+                     levels,
+                     index);
     }
 }
 
 inline QVector<int> otsu(QVector<int> histogram,
                          int classes)
 {
-    qreal maxSum = 0;
+    qreal maxSum = 0.;
     QVector<int> thresholds(classes - 1, 0);
     QVector<qreal> H = buildTables(histogram);
     QVector<int> index(classes + 1);
     index[index.size() - 1] = histogram.size() - 1;
-    for_loop(&maxSum, &thresholds, H, 0, histogram.size() - classes, 0, histogram.size(), &index);
+
+    for_loop(&maxSum,
+             &thresholds,
+             H,
+             1,
+             histogram.size() - classes + 1,
+             1,
+             histogram.size(), &index);
 
     return thresholds;
 }
-
 
 inline QImage threshold(const QImage &src,
                         const QVector<int> &thresholds,
@@ -184,6 +162,41 @@ inline QImage threshold(const QImage &src,
     return dst;
 }
 
+inline void printHistogram(int width, int height,
+                           const QVector<int> &histogram,
+                           const QVector<int> &thresholds=QVector<int>())
+{
+    // Create the graph.
+    QString graph((width + 1) * height, ' ');
+
+    // Split each line.
+    for (int y = 0; y < height; y++)
+        graph[width + y * (width + 1)] = '\n';
+
+    int maxValue = *std::max_element(histogram.constBegin(), histogram.constEnd());
+
+    // Draw values.
+    for (int x = 0; x < width; x++) {
+        int h = (height - 1)
+                * histogram[(histogram.size() - 1) * x / (width - 1)]
+                / maxValue;
+
+        for (int y = height - 1; y >= (height - h - 1); y--)
+            graph[x + y * (width + 1)] = '*';
+    }
+
+    // Draw the trhesholds.
+    foreach (int x, thresholds) {
+        int w = (width - 1) * x / (histogram.size() - 1);
+
+        for (int y = 0; y < height; y++)
+            graph[w + y * (width + 1)] = '|';
+    }
+
+    // Print the graph
+    qDebug() << graph.toStdString().c_str();
+}
+
 int main(int argc, char *argv[])
 {
     QCoreApplication a(argc, argv);
@@ -196,7 +209,7 @@ int main(int argc, char *argv[])
     total.start();
 
     QVector<int> hist = histogram(inImage);
-    int classes = 4;
+    int classes = 5;
     QVector<int> thresholds = otsu(hist, classes);
     QVector<int> colors(classes);
 
