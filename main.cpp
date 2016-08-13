@@ -122,6 +122,7 @@ inline QVector<int> otsu(QVector<int> histogram,
     QVector<int> thresholds(classes - 1, 0);
     QVector<qreal> H = buildTables(histogram);
     QVector<int> index(classes + 1);
+    index[0] = 0;
     index[index.size() - 1] = histogram.size() - 1;
 
     for_loop(&maxSum,
