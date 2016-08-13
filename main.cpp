@@ -36,6 +36,10 @@ inline QVector<int> histogram(const QImage &image)
             histogram[line[x]]++;
     }
 
+    // Since we use sum tables add one more to avoid unexistent colors.
+    for (int i = 0; i < histogram.size(); i++)
+        histogram[i]++;
+
     return histogram;
 }
 
@@ -62,10 +66,7 @@ inline QVector<qreal> buildTables(const QVector<int> &histogram)
         qreal *hLine = H.data() + u * histogram.size();
 
         for (int v = u + 1; v < histogram.size(); v++)
-            if (P[v] == P[u])
-                hLine[v] = S[v] == S[u]? qQNaN(): qInf();
-            else
-                hLine[v] = qPow(S[v] - S[u], 2) / (P[v] - P[u]);
+            hLine[v] = qPow(S[v] - S[u], 2) / (P[v] - P[u]);
     }
 
     return H;
@@ -141,23 +142,22 @@ inline QImage threshold(const QImage &src,
                         const QVector<int> &colors)
 {
     QImage dst(src.size(), src.format());
+    QVector<quint8> colorTable(256);
+    int j = 0;
+
+    for (int i = 0; i < colorTable.size(); i++) {
+        if (j < thresholds.size() && i >= thresholds[j])
+            j++;
+
+        colorTable[i] = quint8(colors[j]);
+    }
 
     for (int y = 0; y < src.height(); y++) {
         const quint8 *srcLine = src.constScanLine(y);
         quint8 *dstLine = dst.scanLine(y);
 
-        for (int x = 0; x < src.width(); x++) {
-            int value = -1;
-
-            for (int j = 0; j < thresholds.size(); j++)
-                if (srcLine[x] <= thresholds[j]) {
-                    value = colors[j];
-
-                    break;
-                }
-
-            dstLine[x] = quint8(value < 0? colors[thresholds.size()]: value);
-        }
+        for (int x = 0; x < src.width(); x++)
+            dstLine[x] = colorTable[srcLine[x]];
     }
 
     return dst;
