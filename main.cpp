@@ -48,6 +48,8 @@ inline QVector<qreal> buildTables(const QVector<int> &histogram)
     // Create cumulative sum tables.
     QVector<quint64> P(histogram.size() + 1);
     QVector<quint64> S(histogram.size() + 1);
+    P[0] = 0;
+    S[0] = 0;
 
     quint64 sumP = 0;
     quint64 sumS = 0;
